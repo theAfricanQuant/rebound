@@ -117,17 +117,17 @@ def get_error_message(error, language):
         return error_message[error_message.rfind(": ") + 2:]
     elif language == "javac":
         m = re.search(r'.*error:(.*)', error.split('\n')[0])
-        return m.group(1) if m else None
+        return m[1] if m else None
     elif language == "java":
         for line in error.split('\n'):
             # Multiple error formats
             m = re.search(r'.*(Exception|Error):(.*)', line)
-            if m and m.group(2):
-                return m.group(2)
+            if m and m[2]:
+                return m[2]
 
             m = re.search(r'Exception in thread ".*" (.*)', line)
-            if m and m.group(1):
-                return m.group(1)
+            if m and m[1]:
+                return m[1]
 
         return None
 
@@ -194,7 +194,7 @@ def execute(command):
     output = ' '.join(output)
     errors = ' '.join(errors)
 
-    if "java" != command[0] and not os.path.isfile(command[1]): # File doesn't exist, for java, command[1] is a class name instead of a file
+    if command[0] != "java" and not os.path.isfile(command[1]): # File doesn't exist, for java, command[1] is a class name instead of a file
         return (None, None)
     else:
         return (output, errors)
@@ -227,10 +227,10 @@ def stylize_code(soup):
                     stylized_text.append(("code", u"\n%s" % str(child)))
                     newline = False
                 else: # In-line code
-                    stylized_text.append(("code", u"%s" % str(child)))
+                    stylized_text.append(("code", f"{str(child)}"))
             else: # Plaintext
                 newline = child.endswith('\n')
-                stylized_text.append(u"%s" % str(child))
+                stylized_text.append(f"{str(child)}")
 
     if type(stylized_text[-2]) == tuple:
         # Remove newline from questions/answers that end with a code block
@@ -286,40 +286,45 @@ def souper(url):
 
 def search_stackoverflow(query):
     """Wrapper function for get_search_results."""
-    soup = souper(SO_URL + "/search?pagesize=50&q=%s" % query.replace(' ', '+'))
+    soup = souper(f"{SO_URL}/search?pagesize=50&q={query.replace(' ', '+')}")
 
     # TODO: Randomize the user agent
 
-    if soup == None:
-        return (None, True)
-    else:
-        return (get_search_results(soup), False)
+    return (None, True) if soup is None else (get_search_results(soup), False)
 
 
 def get_question_and_answers(url):
     """Returns details about a given question and list of its answers."""
     soup = souper(url)
 
-    if soup == None: # Captcha page
+    if soup is None:
         return "Sorry, Stack Overflow blocked our request. Try again in a couple seconds.", "", "", ""
-    else:
-        question_title = soup.find_all('a', class_="question-hyperlink")[0].get_text()
-        question_stats = soup.find("div", class_="js-vote-count").get_text() # Vote count
+    question_title = soup.find_all('a', class_="question-hyperlink")[0].get_text()
+    question_stats = soup.find("div", class_="js-vote-count").get_text() # Vote count
 
-        try:
-            question_stats = question_stats + " Votes | " + '|'.join((((soup.find_all("div", class_="module question-stats")[0].get_text())
-                .replace('\n', ' ')).replace("     ", " | ")).split('|')[:2]) # Vote count, submission date, view count
-        except IndexError:
-            question_stats = "Could not load statistics."
+    try:
+        question_stats = f"{question_stats} Votes | " + '|'.join(
+            (
+                (
+                    (
+                        soup.find_all("div", class_="module question-stats")[
+                            0
+                        ].get_text()
+                    ).replace('\n', ' ')
+                ).replace("     ", " | ")
+            ).split('|')[:2]
+        )
+    except IndexError:
+        question_stats = "Could not load statistics."
 
-        question_desc = stylize_code(soup.find_all("div", class_="post-text")[0]) # TODO: Handle duplicates
-        question_stats = ' '.join(question_stats.split())
+    question_desc = stylize_code(soup.find_all("div", class_="post-text")[0]) # TODO: Handle duplicates
+    question_stats = ' '.join(question_stats.split())
 
-        answers = [stylize_code(answer) for answer in soup.find_all("div", class_="post-text")][1:]
-        if len(answers) == 0:
-            answers.append(urwid.Text(("no answers", u"\nNo answers for this question.")))
+    answers = [stylize_code(answer) for answer in soup.find_all("div", class_="post-text")][1:]
+    if len(answers) == 0:
+        answers.append(urwid.Text(("no answers", u"\nNo answers for this question.")))
 
-        return question_title, question_desc, question_stats, answers
+    return question_title, question_desc, question_stats, answers
 
 
 ############
@@ -692,9 +697,7 @@ class SelectableText(urwid.Text):
 def interleave(a, b):
     result = []
     while a and b:
-        result.append(a.pop(0))
-        result.append(b.pop(0))
-
+        result.extend((a.pop(0), b.pop(0)))
     result.extend(a)
     result.extend(b)
 
@@ -781,13 +784,13 @@ class App(object):
 
     def _stylize_title(self, search_result):
         if search_result["Answers"] == 1:
-            return "%s (1 Answer)" % search_result["Title"]
+            return f'{search_result["Title"]} (1 Answer)'
         else:
-            return "%s (%s Answers)" % (search_result["Title"], search_result["Answers"])
+            return f'{search_result["Title"]} ({search_result["Answers"]} Answers)'
 
 
     def _stylize_question(self, title, desc, stats):
-        new_title = urwid.Text(("title", u"%s" % title))
+        new_title = urwid.Text(("title", f"{title}"))
         new_stats = urwid.Text(("stats", u"%s\n" % stats))
 
         return [new_title, desc, new_stats]
@@ -832,18 +835,17 @@ def print_help():
 def main():
     if len(sys.argv) == 1 or sys.argv[1].lower() == "-h" or sys.argv[1].lower() == "--help":
         print_help()
-    elif sys.argv[1].lower() == "-q" or sys.argv[1].lower() == "--query":
+    elif sys.argv[1].lower() in ["-q", "--query"]:
         query = ' '.join(sys.argv[2:])
         search_results, captcha = search_stackoverflow(query)
 
-        if search_results != []:
-            if captcha:
-                print("\n%s%s%s" % (RED, "Sorry, Stack Overflow blocked our request. Try again in a minute.\n", END))
-                return
-            else:
-                App(search_results) # Opens interface
-        else:
+        if search_results == []:
             print("\n%s%s%s" % (RED, "No Stack Overflow results found.\n", END))
+        elif captcha:
+            print("\n%s%s%s" % (RED, "Sorry, Stack Overflow blocked our request. Try again in a minute.\n", END))
+            return
+        else:
+            App(search_results) # Opens interface
     else:
         language = get_language(sys.argv[1].lower()) # Gets the language name
         if language == '': # Unknown language
@@ -858,20 +860,19 @@ def main():
             return
 
         error_msg = get_error_message(error, language) # Prepares error message for search
-        if error_msg != None:
-            language = 'java' if language == 'javac' else language # Fix language compiler command
-            query = "%s %s" % (language, error_msg)
-            search_results, captcha = search_stackoverflow(query)
-
-            if search_results != []:
-                if captcha:
-                    print("\n%s%s%s" % (RED, "Sorry, Stack Overflow blocked our request. Try again in a minute.\n", END))
-                    return
-                elif confirm("\nDisplay Stack Overflow results?"):
-                    App(search_results) # Opens interface
-            else:
-                print("\n%s%s%s" % (RED, "No Stack Overflow results found.\n", END))
-        else:
+        if error_msg is None:
             print("\n%s%s%s" % (CYAN, "No error detected :)\n", END))
 
+        else:
+            language = 'java' if language == 'javac' else language # Fix language compiler command
+            query = f"{language} {error_msg}"
+            search_results, captcha = search_stackoverflow(query)
+
+            if search_results == []:
+                print("\n%s%s%s" % (RED, "No Stack Overflow results found.\n", END))
+            elif captcha:
+                print("\n%s%s%s" % (RED, "Sorry, Stack Overflow blocked our request. Try again in a minute.\n", END))
+                return
+            elif confirm("\nDisplay Stack Overflow results?"):
+                App(search_results) # Opens interface
     return

@@ -17,7 +17,7 @@ def gen_python_exception(exception_type):
     return stack_trace
 
 def gen_expected_message(exception_type_str):
-    return exception_type_str + ": " + EXCEPTION_DETAILS
+    return f"{exception_type_str}: {EXCEPTION_DETAILS}"
 
 # Tests
 @pytest.mark.parametrize("exception_type, exception_type_str", [
